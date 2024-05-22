@@ -11,7 +11,7 @@
 - windown run in ternimal shell WSL
 - [ ]  sudo snap install aws-cli --classic
 
-// https://us-east-1.console.aws.amazon.com/iam/home#/security_credentials
+<!-- https://us-east-1.console.aws.amazon.com/iam/home#/security_credentials -->
 - [ ]  config: sudo aws configure
 
 - [ ]  jq: sudo snap install jq  # version 1.5+dfsg-1
@@ -22,4 +22,8 @@
 - [ ]  sudo docker login https://registry-1.docker.io/v2/
 - [ ]  sudo ./deploy.sh
 
-terraform
+## List Subnets / Security Groups
+- aws ec2 describe-subnets --region us-east-2
+- aws ec2 describe-security-groups --region us-east-2
+
+<!-- terraform -->

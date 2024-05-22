@@ -2,66 +2,51 @@
 
 # Define variables (replace with your details)
 IMAGE_NAME="test-aws"
-CLUSTER_NAME="arn:aws:ecs:us-east-2:488347225713:cluster/test-aws-cluster"
+REGION="us-east-2"  # Ensure this matches your ECS cluster's region
+CLUSTER_NAME="test-aws-cluster"  # Only use the cluster name here, not the ARN
 SERVICE_NAME="test-aws-service"
 PORT=3000  # Port for your Node.js application
 REPOSITORY_URI="public.ecr.aws/u4u8z1j5"
-IMAGE_TAG="latest"  # Define the image tag
-SUBNET_IDS=("subnet-id-1" "subnet-id-2")  # Replace with your subnet IDs
-SECURITY_GROUP_IDS=("security-group-id-1")  # Replace with your security group IDs
+IMAGE_TAG="latest"
+SUBNET_ID="subnet-05544ac680d0cd232"  # Replace with your subnet ID
+SECURITY_GROUP_ID="sg-0b2658ca737af119a"  # Replace with your security group ID
 
 # Build the Docker image (replace with your build command)
-docker build -t $IMAGE_NAME .
+docker build -t $IMAGE_NAME:$IMAGE_TAG .
 
-# Login to ECR (replace with your credentials if needed)
+# Login to ECR Public (use the global endpoint)
 aws ecr-public get-login-password --region us-east-1 | docker login --username AWS --password-stdin $REPOSITORY_URI
 
-# Push the image to ECR
+# Push the image to ECR Public
 docker tag $IMAGE_NAME:$IMAGE_TAG $REPOSITORY_URI/$IMAGE_NAME:$IMAGE_TAG
 docker push $REPOSITORY_URI/$IMAGE_NAME:$IMAGE_TAG
 
 # Create/update ECS task definition
-TASK_DEFINITION=$(aws ecs register-task-definition --family $SERVICE_NAME --network-mode awsvpc --cpu "256" --memory "512" --requires-compatibilities FARGATE --container-definitions "[{
+TASK_DEFINITION=$(aws ecs register-task-definition --region $REGION --family $SERVICE_NAME --network-mode awsvpc --cpu "256" --memory "512" --requires-compatibilities FARGATE --container-definitions "[{
     \"name\": \"$SERVICE_NAME\",
     \"image\": \"$REPOSITORY_URI/$IMAGE_NAME:$IMAGE_TAG\",
     \"portMappings\": [{ \"containerPort\": $PORT }],
     \"essential\": true
 }]" | jq -r '.taskDefinition.taskDefinitionArn')
 
-# Prepare network configuration
-NETWORK_CONFIGURATION=$(jq -n \
-    --argjson subnets "$(printf '%s\n' "${SUBNET_IDS[@]}" | jq -R . | jq -s .)" \
-    --argjson securityGroups "$(printf '%s\n' "${SECURITY_GROUP_IDS[@]}" | jq -R . | jq -s .)" \
-    --arg assignPublicIp "DISABLED" \
-    '{
-        awsvpcConfiguration: {
-            subnets: $subnets,
-            securityGroups: $securityGroups,
-            assignPublicIp: $assignPublicIp
-        }
-    }')
-
-# Check if the service already exists
-SERVICE_EXISTS=$(aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME | jq -r '.services | length')
+# Check if the service exists
+SERVICE_EXISTS=$(aws ecs describe-services --region $REGION --cluster $CLUSTER_NAME --services $SERVICE_NAME | jq -r '.services | length')
 
 if [ "$SERVICE_EXISTS" -eq 0 ]; then
-  # Create ECS service
-  aws ecs create-service \
-    --cluster $CLUSTER_NAME \
-    --service-name $SERVICE_NAME \
-    --task-definition $TASK_DEFINITION \
-    --launch-type FARGATE \
-    --desired-count 1 \
-    --network-configuration "awsvpcConfiguration={subnets=[\"${SUBNET_IDS[0]}\",\"${SUBNET_IDS[1]}\"],securityGroups=[\"${SECURITY_GROUP_IDS[0]}\"],assignPublicIp=\"DISABLED\"}"
+    # Create ECS service if it does not exist
+    aws ecs create-service --region $REGION --cluster $CLUSTER_NAME --service-name $SERVICE_NAME --task-definition $TASK_DEFINITION --launch-type FARGATE --desired-count 1 --network-configuration "{
+        \"awsvpcConfiguration\": {
+            \"subnets\": [\"$SUBNET_ID\"],
+            \"securityGroups\": [\"$SECURITY_GROUP_ID\"],
+            \"assignPublicIp\": \"ENABLED\"
+        }
+    }"
 else
-  # Update ECS service
-  aws ecs update-service \
-    --cluster $CLUSTER_NAME \
-    --service $SERVICE_NAME \
-    --task-definition $TASK_DEFINITION
+    # Update ECS service if it exists
+    aws ecs update-service --region $REGION --cluster $CLUSTER_NAME --service $SERVICE_NAME --task-definition $TASK_DEFINITION
 fi
 
 # Display service details (optional)
-aws ecs describe-services --cluster $CLUSTER_NAME --services $SERVICE_NAME | jq
+aws ecs describe-services --region $REGION --cluster $CLUSTER_NAME --services $SERVICE_NAME | jq
 
 echo "Deployment completed!"
